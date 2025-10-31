@@ -1,52 +1,54 @@
 import os
 import shutil
 import random
+from tqdm import tqdm
 
-root = "data/WCEBleedGen"
-out_dir = "data/yolo_dataset"
-os.makedirs(out_dir, exist_ok=True)
+def prepare_dataset(base_dir="WCEBleedGen", out_dir="data_prepared", split_ratio=0.8):
+    classes = ["bleeding", "non-bleeding"]
+    image_ext = ".png"  # nếu là .jpg hoặc .jpeg thì sửa ở đây
 
-img_out = os.path.join(out_dir, "images")
-lbl_out = os.path.join(out_dir, "labels")
+    # Tạo thư mục đích
+    for subset in ["train", "val"]:
+        os.makedirs(os.path.join(out_dir, "images", subset), exist_ok=True)
+        os.makedirs(os.path.join(out_dir, "masks", subset), exist_ok=True)
 
-for split in ["train", "val"]:
-    os.makedirs(os.path.join(img_out, split), exist_ok=True)
-    os.makedirs(os.path.join(lbl_out, split), exist_ok=True)
+    for cls in classes:
+        print(f"\n📦 Processing class: {cls}")
+        img_dir = os.path.join(base_dir, cls, "images")
+        ann_dir = os.path.join(base_dir, cls, "annotations")
 
-def copy_and_rename_images(src_img_dir, src_label_dir, prefix, split_ratio=0.8):
-    imgs = [f for f in os.listdir(src_img_dir) if f.endswith((".png", ".jpg"))]
-    random.shuffle(imgs)
-    split_idx = int(len(imgs) * split_ratio)
-    
-    for i, img_name in enumerate(imgs):
-        img_path = os.path.join(src_img_dir, img_name)
-        base = os.path.splitext(img_name)[0]
-        label_name = base + ".txt"
-        lbl_path = os.path.join(src_label_dir, label_name)
+        img_files = sorted([f for f in os.listdir(img_dir) if f.endswith(image_ext)])
+        ann_files = sorted([f for f in os.listdir(ann_dir) if f.endswith(image_ext)])
 
-        # Tạo tên mới để tránh trùng
-        new_name = f"{prefix}_{i:04d}.png"
-        new_lbl = f"{prefix}_{i:04d}.txt"
+        n = min(len(img_files), len(ann_files))
+        pairs = list(zip(img_files[:n], ann_files[:n]))
+        random.shuffle(pairs)
 
-        split = "train" if i < split_idx else "val"
-        shutil.copy(img_path, os.path.join(img_out, split, new_name))
+        split_idx = int(split_ratio * n)
+        train_pairs = pairs[:split_idx]
+        val_pairs = pairs[split_idx:]
 
-        if os.path.exists(lbl_path):
-            shutil.copy(lbl_path, os.path.join(lbl_out, split, new_lbl))
-        else:
-            # nếu là non-bleeding mà không có bbox
-            open(os.path.join(lbl_out, split, new_lbl), "w").close()
+        for subset, data_pairs in [("train", train_pairs), ("val", val_pairs)]:
+            for idx, (img_file, ann_file) in enumerate(tqdm(data_pairs, desc=f"{cls} -> {subset}")):
+                new_name = f"{cls}_{idx:04d}{image_ext}"
 
-# bleeding có YOLO bbox
-copy_and_rename_images(
-    src_img_dir=os.path.join(root, "bleeding", "Images"),
-    src_label_dir=os.path.join(root, "bleeding", "Bounding boxes"),
-    prefix="bleeding"
-)
+                src_img = os.path.join(img_dir, img_file)
+                src_ann = os.path.join(ann_dir, ann_file)
 
-# non-bleeding có mask, chưa có bbox
-copy_and_rename_images(
-    src_img_dir=os.path.join(root, "non-bleeding", "Images"),
-    src_label_dir=os.path.join(root, "non-bleeding", "annotation"),
-    prefix="nonbleeding"
-)
+                dst_img = os.path.join(out_dir, "images", subset, new_name)
+                dst_mask = os.path.join(out_dir, "masks", subset, new_name)
+
+                shutil.copy(src_img, dst_img)
+                shutil.copy(src_ann, dst_mask)
+
+    print("\n✅ Dataset prepared successfully!")
+    print(f"📁 Output directory: {out_dir}")
+    print("Structure:")
+    print("data_prepared/")
+    print(" ├── images/train/")
+    print(" ├── images/val/")
+    print(" ├── masks/train/")
+    print(" └── masks/val/")
+
+if __name__ == "__main__":
+    prepare_dataset(base_dir="WCEBleedGen", out_dir="data_prepared", split_ratio=0.8)
